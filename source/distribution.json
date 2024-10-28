@@ -1,0 +1,35 @@
+{
+    "name": "PaynetEasy",
+    "description": "This is a Payment Module for Oscommerce, that gives you the ability to process payments through payment service providers running on PaynetEasy.",
+    "type": "payment",
+    "version": "2.0.0",
+    "authors": [
+        {
+            "name": "Payneasy.com",
+            "email": "info@payneteasy.com",
+            "homepage": "https://payneteasy.com/",
+            "role": "Owner"
+        }
+    ],
+    "src": [
+        {
+            "action": "add",
+            "type": "file",
+            "path": "payneteasy.php"
+        },
+        {
+            "action": "add",
+            "type": "file",
+            "path": "ot_payneteasy.php"
+        },
+        {
+            "action": "copy",
+            "type": "dir",
+            "path": "payneteasy"
+        }
+    ],
+    "require": {
+        "platform": "True"
+    },
+    "class": "payneteasy"
+}
