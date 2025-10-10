@@ -1,2 +1,1 @@
-# PaynetEasy Payment Module for OsCommerce v4
-This is a Payment Module for OsCommerce v4, that gives you the ability to process payments through payment service providers running on PaynetEasy.
+# [Documentation in English](https://github.com/annihilatoratm/oscommerce-doc/blob/main/documentation/doc-eng.md)
