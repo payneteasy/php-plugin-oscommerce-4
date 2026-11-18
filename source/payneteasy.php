@@ -309,6 +309,12 @@ class payneteasy extends ModulePayment {
         $payneteasy_card_zip          = $this->manager->get('payneteasy-card-zip');
         $payneteasy_remote_address    = $this->manager->get('payneteasy-remote-address');
 
+        // The card data is needed only for this request: remove it from the session.
+        foreach (['payneteasy-card-number', 'payneteasy-card-expiry-month', 'payneteasy-card-expiry-year',
+                  'payneteasy-card-name', 'payneteasy-card-cvv'] as $key) {
+            $this->manager->remove($key);
+        }
+
         $card_data = [
             'credit_card_number' => $payneteasy_card_number?:'',
             'card_printed_name' => $payneteasy_card_name?:'',
@@ -391,10 +397,12 @@ class payneteasy extends ModulePayment {
             );
         }
 
-        tep_db_query(
-            "INSERT INTO payneteasy_payments (paynet_order_id, merchant_order_id) 
-                VALUES (".$response['paynet-order-id'].", ".$response['merchant-order-id'].")"
-        );
+        if (isset($response['paynet-order-id'], $response['merchant-order-id'])) {
+            tep_db_query(
+                "INSERT INTO payneteasy_payments (paynet_order_id, merchant_order_id) 
+                    VALUES (" . (int) $response['paynet-order-id'] . ", " . (int) $response['merchant-order-id'] . ")"
+            );
+        }
         return $response;
     }
 
@@ -611,7 +619,7 @@ class payneteasy extends ModulePayment {
     function get_error()
     {
         $error = array('title' => 'Payment error',
-            'error' => stripslashes(urldecode($_GET['error'])));
+            'error' => htmlspecialchars(stripslashes(urldecode($_GET['error'] ?? '')), ENT_QUOTES, 'UTF-8'));
         return $error;
     }
 
