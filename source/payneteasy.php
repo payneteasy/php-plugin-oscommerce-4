@@ -527,8 +527,38 @@ class payneteasy extends ModulePayment {
     }
 
     public function call_webhooks() {
-        $order = $this->manager->getOrderInstanceWithId('\common\classes\Order', (int)$_POST['merchant_order']);
+        $orderId = (string) ($_REQUEST['merchant_order'] ?? $_REQUEST['orders_id'] ?? '');
+
+        // Only orders sent to the gateway by this module
+        if (!ctype_digit($orderId) || !tep_db_fetch_array(tep_db_query(
+            "SELECT paynet_order_id FROM payneteasy_payments WHERE merchant_order_id = " . (int) $orderId
+        ))) {
+            http_response_code(400);
+            exit('error');
+        }
+
+        $order = $this->manager->getOrderInstanceWithId('\common\classes\Order', (int) $orderId);
         $status = $this->getPaymentStatus($order);
+        $status['status'] = trim($status['status'] ?? '');
+
+        // A repeated return or callback, or a paid order, is not processed again.
+        $paid = \common\models\OrdersPayment::find()->where([
+            'orders_payment_order_id' => $order->order_id,
+            'orders_payment_module'   => $this->code,
+            'orders_payment_status'   => \common\helpers\OrderPayment::OPYS_SUCCESSFUL,
+        ])->exists();
+        $recorded = \common\models\OrdersPayment::find()->where([
+            'orders_payment_order_id'       => $order->order_id,
+            'orders_payment_module'         => $this->code,
+            'orders_payment_transaction_id' => $status['paynet-order-id'] ?? '',
+        ])->exists();
+
+        if ($paid || $recorded) {
+            if ($paid) {
+                tep_redirect(HTTP_SERVER.'/checkout/success?order_id='.$order->order_id);
+            }
+            exit('ok');
+        }
         if (trim($status['status']) == 'approved' || $status['status'] == 'approved') {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
@@ -579,7 +609,7 @@ class payneteasy extends ModulePayment {
             ]);
             echo '<div class="error" style="text-align: center;width: 100%;">';
             echo '<p>Error:</p>';
-            echo $status['error-message'];
+            echo htmlspecialchars($status['error-message'] ?? '', ENT_QUOTES, 'UTF-8');
             echo '<p><a class="btn-1 btn-buy" href="'.HTTP_SERVER.'">Return on homepage</a></p>';
             echo '</div>';
             tep_db_query("DELETE FROM " . TABLE_CUSTOMERS_BASKET . " WHERE customers_id = '" . (int) $order->customer['id'] . "'");
@@ -608,7 +638,7 @@ class payneteasy extends ModulePayment {
             ]);
             echo '<div class="declined" style="text-align: center;width: 100%;">';
             echo '<p>Your payment was declined</p>';
-            echo $status['error-message'];
+            echo htmlspecialchars($status['error-message'] ?? '', ENT_QUOTES, 'UTF-8');
             echo '<p><a class="btn-1 btn-buy" href="'.HTTP_SERVER.'">Return on homepage</a></p>';
             echo '</div>';
             tep_db_query("DELETE FROM " . TABLE_CUSTOMERS_BASKET . " WHERE customers_id = '" . (int) $order->customer['id'] . "'");
