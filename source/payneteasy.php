@@ -94,16 +94,27 @@ class payneteasy extends ModulePayment {
             \Yii::$app->getView()->registerJsFile($adminrefund);
             \Yii::$app->getView()->registerCssFile($adminrefundcss);
         } else {
-            $branddetection = tep_href_link('lib/common/modules/orderPayment/payneteasy/js/BrandDetection.js');
-            $creditcard = tep_href_link('lib/common/modules/orderPayment/payneteasy/js/creditcard.js');
-            $cc = tep_href_link('lib/common/modules/orderPayment/payneteasy/js/cc.js');
-            $payneteasycss = tep_href_link('lib/common/modules/orderPayment/payneteasy/css/payneteasy.css');
+            $branddetection = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/js/BrandDetection.js');
+            $creditcard = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/js/creditcard.js');
+            $cc = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/js/cc.js');
+            $payneteasycss = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/css/payneteasy.css');
             \Yii::$app->getView()->registerJsFile($branddetection);
             \Yii::$app->getView()->registerJsFile($creditcard);
             \Yii::$app->getView()->registerJsFile($cc);
             \Yii::$app->getView()->registerCssFile($payneteasycss);
         }
         $this->update_status();
+    }
+
+    /**
+     * URL of a static file of the module. tep_href_link() adds the language or
+     * currency prefix of the page (e.g. /EUR/), under which static files are not served.
+     */
+    protected function assetUrl($path)
+    {
+        $base = (class_exists('\\Yii') && isset(\Yii::$app->request) && method_exists(\Yii::$app->request, 'getBaseUrl'))
+            ? \Yii::$app->request->getBaseUrl() : '';
+        return rtrim($base, '/') . '/' . ltrim($path, '/');
     }
 
     function getScriptName() {
@@ -181,34 +192,34 @@ class payneteasy extends ModulePayment {
         }
 
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'American Express') ) {
-            $amex = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/amex.png');
+            $amex = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/amex.png');
             $logos .= '<img src="'.$amex.'" class="payneteasy-cc-logo" id="payneteasy-cc-amex" alt="American Express"/>';
         }
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'Visa') ) {
-            $visa = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/visa.png');
+            $visa = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/visa.png');
             $logos .= '<img src="'.$visa.'" class="payneteasy-cc-logo" id="payneteasy-cc-visa" alt="VISA"/>';
         }
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'MasterCard') ) {
-            $mastercard = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/mastercard.png');
+            $mastercard = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/mastercard.png');
             $logos .= '<img src="'.$mastercard.'" class="payneteasy-cc-logo" id="payneteasy-cc-mastercard" alt="Master Card"/>';
         }
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'Discover') ) {
-            $discover = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/discover.png');
+            $discover = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/discover.png');
             $logos .= '<img src="'.$discover.'" class="payneteasy-cc-logo" id="payneteasy-cc-discover" alt="Discover"/>';
         }
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'JCB') ) {
-            $jcb = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/jcb.png');
+            $jcb = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/jcb.png');
             $logos .= '<img src="'.$jcb.'" class="payneteasy-cc-logo" id="payneteasy-cc-jcb" alt="JCB"/>';
         }
         if( strstr(MODULE_PAYMENT_PAYNETEASY_ACCEPTED_CARDS,'Diners') ) {
-            $diners = tep_href_link('lib/common/modules/orderPayment/payneteasy/images/diners.png');
+            $diners = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images/diners.png');
             $logos .= '<img src="'.$diners.'" class="payneteasy-cc-logo" id="payneteasy-cc-diners-club" alt="Diners"/>';
         }
 
         if ($this->checkView() == "admin") {
             $paynetlogo = tep_catalog_href_link('lib/common/modules/orderPayment/payneteasy/logo/PaynetLogo.svg');
         } else {
-            $paynetlogo = tep_href_link('lib/common/modules/orderPayment/payneteasy/logo/PaynetLogo.svg');
+            $paynetlogo = $this->assetUrl('lib/common/modules/orderPayment/payneteasy/logo/PaynetLogo.svg');
         }
         
         $billing_address = $this->manager->getBillingAddress();
@@ -223,7 +234,7 @@ class payneteasy extends ModulePayment {
                   . 'var payneteasy_postcode = \'' . $billing_address["postcode"] . '\';'
                   . 'var payneteasy_customer_id = \'' . $customer_id . '\';'
                   . 'var payneteasy_payment_method = \'' . MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD . '\';'
-                  . 'var payneteasy_brand_logo_path = \'' . tep_href_link('lib/common/modules/orderPayment/payneteasy/images') . '\';'
+                  . 'var payneteasy_brand_logo_path = \'' . $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images') . '\';'
                 . '</script>';
                 
         return array('id' => $this->code,
@@ -450,7 +461,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
@@ -473,7 +484,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
@@ -499,7 +510,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
@@ -563,7 +574,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
@@ -589,7 +600,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
@@ -618,7 +629,7 @@ class payneteasy extends ModulePayment {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
-            $orderPayment->orders_payment_transaction_id = $status['paynet-order-id'];
+            $orderPayment->orders_payment_transaction_id = (string) ($status['paynet-order-id'] ?? '');
             $orderPayment->orders_payment_id_parent = 0;
             $orderPayment->orders_payment_order_id = $order->order_id;
             $orderPayment->orders_payment_is_credit = 0;
