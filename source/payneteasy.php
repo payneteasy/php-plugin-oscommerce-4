@@ -279,7 +279,7 @@ class payneteasy extends ModulePayment {
             );
         }
 
-        tep_db_query("CREATE TABLE `payneteasy_payments` (`paynet_order_id` int(11) NOT NULL, `merchant_order_id` int(11) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;");
+        tep_db_query("CREATE TABLE `payneteasy_payments` (`paynet_order_id` bigint(20) unsigned NOT NULL, `merchant_order_id` int(11) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_general_ci;");
 
         //copy ot_payneteasy.php file to orderTotal module
         if( file_exists(__DIR__."/ot_payneteasy.php") && copy(__DIR__."/ot_payneteasy.php",__DIR__."/../orderTotal/ot_payneteasy.php") ) {
@@ -408,6 +408,7 @@ class payneteasy extends ModulePayment {
         }
 
         if (isset($response['paynet-order-id'], $response['merchant-order-id'])) {
+            $this->ensurePaymentsTable();
             tep_db_query(
                 "INSERT INTO payneteasy_payments (paynet_order_id, merchant_order_id) 
                     VALUES (" . (int) $response['paynet-order-id'] . ", " . (int) $response['merchant-order-id'] . ")"
@@ -921,6 +922,17 @@ class payneteasy extends ModulePayment {
         }
 
         return $response;
+    }
+
+    /**
+     * Gateway ids do not fit into int: widen the column of tables created by older versions.
+     */
+    private function ensurePaymentsTable()
+    {
+        $column = tep_db_fetch_array(tep_db_query("SHOW COLUMNS FROM `payneteasy_payments` LIKE 'paynet_order_id'"));
+        if ($column && stripos($column['Type'], 'bigint') !== 0) {
+            tep_db_query("ALTER TABLE `payneteasy_payments` MODIFY `paynet_order_id` bigint(20) unsigned NOT NULL");
+        }
     }
 
     private function signStatusRequest($requestFields, $login, $merchantControl)
