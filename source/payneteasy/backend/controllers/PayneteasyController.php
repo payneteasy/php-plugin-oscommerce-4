@@ -47,12 +47,12 @@ class PayneteasyController extends \backend\controllers\Sceleton {
     }
 
     function showError($error_message) {
-//        $result = array(
-//            'message' => '<span class="warn warning"></span> <span class="text-error">'.$error_message.'</span>',
-//            'error' => true
-//        );
-//        echo json_encode($result);
-//        exit();
+        $result = array(
+            'message' => '<span class="warn warning"></span> <span class="text-error">'.htmlspecialchars((string)$error_message, ENT_QUOTES, 'UTF-8').'</span>',
+            'error' => true
+        );
+        echo json_encode($result);
+        exit();
     }
 
     public function actionRefundPayment()
@@ -105,7 +105,6 @@ class PayneteasyController extends \backend\controllers\Sceleton {
 
         if( !$post['platform_id'] ) $this->showError('The Platform ID is missing.');
         elseif( !$post['opyID'] ) $this->showError('The Payment ID is missing.');
-        elseif( !$post['uuid'] ) $this->showError('The UUID is missing.');
         elseif( !$post['amount'] ) $this->showError('The amount is missing.');
         elseif( !is_numeric($post['amount']) ) $this->showError('The amount is invalid.');
 
@@ -136,7 +135,7 @@ class PayneteasyController extends \backend\controllers\Sceleton {
             $order_currency = $paymentRecord["orders_payment_currency"];
             $currency_value = $paymentRecord["orders_payment_currency_rate"];
             $payment        = json_decode($paymentRecord["orders_payment_transaction_full"], true);
-            $transactionId  = $payment["Transaction ID"];
+            $transactionId  = (string)$paymentRecord["orders_payment_transaction_id"];
 
             $orderPaymentAmountAvailable = \common\helpers\OrderPayment::getAmountAvailable($paymentRecord);
             if ($post['amount'] > $orderPaymentAmountAvailable) {
@@ -188,29 +187,62 @@ class PayneteasyController extends \backend\controllers\Sceleton {
             $sandbox
         );
 
-        $paynet_order_id = tep_db_fetch_array(tep_db_query("SELECT paynet_order_id FROM payneteasy_payments WHERE merchant_order_id = '" . $order_id . "'"));
+        // Refund the transaction of the paid payment record
+        if (!ctype_digit($transactionId)) {
+            $row = tep_db_fetch_array(tep_db_query("SELECT paynet_order_id FROM payneteasy_payments WHERE merchant_order_id = '" . (int)$order_id . "' ORDER BY paynet_order_id DESC LIMIT 1"));
+            $transactionId = (string)($row['paynet_order_id'] ?? '');
+        }
+        if (!ctype_digit($transactionId)) $this->showError('PaynetEasy transaction not found.');
+        $paynet_order_id = ['paynet_order_id' => $transactionId];
 
         $data = [
             'login' => MODULE_PAYMENT_PAYNETEASY_LOGIN,
-            'client_orderid' => $order_id,
-            'orderid' => $paynet_order_id['paynet_order_id'],
-            'comment' => 'Order cancel'
+            'client_orderid' => (string)$order_id,
+            'orderid' => $transactionId,
+            'amount' => number_format((float)$post['amount'], 2, '.', ''),
+            'currency' => strtoupper(trim($order_currency)),
+            'comment' => 'Refund'
         ];
 
-        $data['control'] = $this->signPaymentRequest($data, $payment_payneteasy_endpoint_id, MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY);
+        $data['control'] = $this->signString(
+            $data['login'] . $data['client_orderid'] . $data['orderid'] . (int)round($data['amount'] * 100) . $data['currency'],
+            MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY
+        );
 
-        $response = $paynetApi->return($data, $payment_payneteasy_payment_method, $sandbox, $action_url, $payment_payneteasy_endpoint_id);
+        try {
+            $response = $paynetApi->return($data, $payment_payneteasy_payment_method, $sandbox, $action_url, $payment_payneteasy_endpoint_id);
+        } catch (\Throwable $e) {
+            $this->showError('The refund could not be sent to PaynetEasy. Please try again later.');
+        }
 
-        if( trim($response['type']) == "validation-error" ) {
-            $error_message = $response['error-message'];
-//			if( isset($response->desc) )
-//	    		$error_message .= "<br />".$response->desc;
-            $result = array(
-                'message' => '<span class="warn warning"></span> <span class="text-error">'.$error_message.'</span>',
-                'error' => true
-            );
-            echo json_encode($result);
-        } else {
+        if (in_array(trim((string)($response['type'] ?? '')), ['error', 'validation-error'], true) || trim((string)($response['status'] ?? '')) === 'error') {
+            $this->showError($response['error-message'] ?? 'PaynetEasy refused the refund.');
+        }
+
+        // The refund is processed asynchronously: wait briefly for the final answer
+        for ($i = 0; $i < 5; $i++) {
+            $statusData = [
+                'login' => MODULE_PAYMENT_PAYNETEASY_LOGIN,
+                'client_orderid' => (string)$order_id,
+                'orderid' => $transactionId,
+            ];
+            $statusData['control'] = $this->signString($statusData['login'] . $statusData['client_orderid'] . $statusData['orderid'], MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY);
+            try {
+                $state = $paynetApi->status($statusData, $payment_payneteasy_payment_method, $sandbox, $action_url, $payment_payneteasy_endpoint_id);
+            } catch (\Throwable $e) {
+                break;
+            }
+            $final = trim((string)($state['status'] ?? ''));
+            if (in_array($final, ['declined', 'error', 'filtered'], true)) {
+                $this->showError($state['error-message'] ?? 'PaynetEasy declined the refund.');
+            }
+            if ($final !== 'processing') {
+                break;
+            }
+            sleep(1);
+        }
+
+        {
             $currencies = \Yii::$container->get('currencies');
 //            $orders_payment_transaction_id = $response->txnid;
 //            $orders_payment_token = $response->token;
@@ -287,6 +319,11 @@ class PayneteasyController extends \backend\controllers\Sceleton {
                     }
 
                 }
+
+                echo json_encode(array(
+                    'message' => '<h2>Success!</h2><p>The refund of ' . htmlspecialchars($data['amount'] . ' ' . $data['currency'], ENT_QUOTES, 'UTF-8') . ' has been sent to PaynetEasy.</p>',
+                    'error' => false
+                ));
 
 //                $response_string = sprintf(
 //                    '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" class="bi bi-check-circle-fill" viewBox="0 0 16 16"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/></svg> <h2>Success!</h2><p>The Payment %2$s has been %1$s successfully.%3$s<strong>Transaction ID:</strong>  %4$s.%5$s <strong>Approval Code:</strong> %6$s.%7$s <strong>RRN:</strong> %8$s</p><div class="buttonbox"><button type="button" id="donebutton" class="btn btn-primary">Ok</button></div>',

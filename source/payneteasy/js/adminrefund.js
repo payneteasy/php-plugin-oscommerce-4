@@ -42,13 +42,17 @@ $(document).ready(function () {
 
         $.fn.returnPayment = function() {
             $.post(payneteasy.return_url, { platform_id: payneteasy.platform_id, opyID: payneteasy.opyID, amount: $('input[name=orders_payment_amount]').val() }, function( data ) {
-                data = JSON.parse(data);
-                console.log(data);
-                if(!data) {
-                if( data.message ) $("#resp").html(data.message);
+                try { data = JSON.parse(data); } catch (e) { data = null; }
+                var text = data && data.message ? $('<div>').html(data.message).text() : 'Unexpected response from the server.';
+                alert(text);
+                if (data && !data.error) {
+                    location.reload();
                 } else {
-                    $('input[name=payneteasy_uuid]').val(data.uuid);
+                    $('#refundbutton').prop('disabled', false);
                 }
+            }).fail(function () {
+                alert('The refund request failed.');
+                $('#refundbutton').prop('disabled', false);
             });
         }
 
