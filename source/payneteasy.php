@@ -78,13 +78,14 @@ class payneteasy extends ModulePayment {
             $refund_url   = \Yii::$app->urlManager->createUrl('payneteasy/refund-payment');
             $balancepayment_url = \Yii::$app->urlManager->createUrl('payneteasy/balance-payment');
             $opyID        = \Yii::$app->request->get('opyID');
-            $script = 'var payneteasy = {
-                    platform_id : '.$platform_id.',
-                    return_url  : "'.$return_url.'",
-                    refund_url  : "'.$refund_url.'",
-                    balancepayment_url  : "'.$balancepayment_url.'",
-                    opyID       : "'.$opyID.'"
-                };';
+            // Values are JSON-encoded: request data must not break out of the script
+            $script = 'var payneteasy = ' . json_encode([
+                    'platform_id'        => (int)$platform_id,
+                    'return_url'         => (string)$return_url,
+                    'refund_url'         => (string)$refund_url,
+                    'balancepayment_url' => (string)$balancepayment_url,
+                    'opyID'              => (string)$opyID,
+                ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ';';
             \Yii::$app->getView()->registerJs($script);
         }
         
@@ -160,6 +161,9 @@ class payneteasy extends ModulePayment {
 
     function selection() {
 
+        // The customer is choosing the payment again: drop card data left from an earlier attempt
+        $this->forgetCardData();
+
         //if store currency not euro then ignore payneteasy payment gateway
         $transaction_currency = \Yii::$app->settings->get('currency');
         if (strtolower($transaction_currency) != "eur") {
@@ -230,9 +234,9 @@ class payneteasy extends ModulePayment {
                   . 'var payneteasy_cc_months = ' . json_encode($months_array) . ';'
                   . 'var payneteasy_cc_years = ' . json_encode($years_array) . ';'
                   . 'var payneteasy_logos = \'' . $logos . '\';'
-                  . 'var payneteasy_street_address = \'' . $billing_address["street_address"] . '\';'
-                  . 'var payneteasy_postcode = \'' . $billing_address["postcode"] . '\';'
-                  . 'var payneteasy_customer_id = \'' . $customer_id . '\';'
+                  . 'var payneteasy_street_address = ' . json_encode((string)($billing_address["street_address"] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ';'
+                  . 'var payneteasy_postcode = ' . json_encode((string)($billing_address["postcode"] ?? ''), JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ';'
+                  . 'var payneteasy_customer_id = ' . json_encode((string)$customer_id, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ';'
                   . 'var payneteasy_payment_method = \'' . MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD . '\';'
                   . 'var payneteasy_brand_logo_path = \'' . $this->assetUrl('lib/common/modules/orderPayment/payneteasy/images') . '\';'
                 . '</script>';
@@ -311,20 +315,15 @@ class payneteasy extends ModulePayment {
         $shipping = $order->delivery;
         $customer = $order->customer;
 
-        $payneteasy_card_number       = $this->manager->get('payneteasy-card-number');
-        $payneteasy_card_expiry_month = $this->manager->get('payneteasy-card-expiry-month');
-        $payneteasy_card_expiry_year  = $this->manager->get('payneteasy-card-expiry-year');
-        $payneteasy_card_name         = $this->manager->get('payneteasy-card-name');
-        $payneteasy_card_cvv          = $this->manager->get('payneteasy-card-cvv');
+        $card                         = $this->takeCardData();
+        $payneteasy_card_number       = $card['number'];
+        $payneteasy_card_expiry_month = $card['month'];
+        $payneteasy_card_expiry_year  = $card['year'];
+        $payneteasy_card_name         = $card['name'];
+        $payneteasy_card_cvv          = $card['cvv'];
         $payneteasy_card_address      = $this->manager->get('payneteasy-card-address');
         $payneteasy_card_zip          = $this->manager->get('payneteasy-card-zip');
         $payneteasy_remote_address    = $this->manager->get('payneteasy-remote-address');
-
-        // Remove card fields after use.
-        foreach (['payneteasy-card-number', 'payneteasy-card-expiry-month', 'payneteasy-card-expiry-year',
-                  'payneteasy-card-name', 'payneteasy-card-cvv'] as $key) {
-            $this->manager->remove($key);
-        }
 
         $card_data = [
             'credit_card_number' => $payneteasy_card_number?:'',
@@ -666,25 +665,87 @@ class payneteasy extends ModulePayment {
 
     function pre_confirmation_check()
     {
-        $payneteasy_card_number = $_POST['payneteasy-card-number'];
-        $payneteasy_card_number = str_replace(' ','',$payneteasy_card_number);
-        $payneteasy_card_expiry_month = $_POST['payneteasy-card-expiry-month'];
-        $payneteasy_card_expiry_year = $_POST['payneteasy-card-expiry-year'];
-        $payneteasy_card_name = $_POST['payneteasy-card-name'];
-        $payneteasy_card_cvv = $_POST['payneteasy-card-cvv'];
-        $payneteasy_card_address = $_POST['payneteasy-card-address'];
-        $payneteasy_card_zip = $_POST['payneteasy-card-zip'];
+        $this->forgetCardData();
 
-        $this->manager->set('payneteasy-card-number', $payneteasy_card_number);
-        $this->manager->set('payneteasy-card-expiry-month', $payneteasy_card_expiry_month);
-        $this->manager->set('payneteasy-card-expiry-year', $payneteasy_card_expiry_year);
-        $this->manager->set('payneteasy-card-name', $payneteasy_card_name);
-        $this->manager->set('payneteasy-card-cvv', $payneteasy_card_cvv);
-        $this->manager->set('payneteasy-card-address', $payneteasy_card_address);
-        $this->manager->set('payneteasy-card-zip', $payneteasy_card_zip);
-        $this->manager->set('payneteasy-remote-address', $_SERVER['REMOTE_ADDR']);        
+        // Card fields are entered on the shop page only in the direct mode
+        if (MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD == 'Direct') {
+            $card = json_encode([
+                'number' => str_replace(' ', '', (string)($_POST['payneteasy-card-number'] ?? '')),
+                'month'  => (string)($_POST['payneteasy-card-expiry-month'] ?? ''),
+                'year'   => (string)($_POST['payneteasy-card-expiry-year'] ?? ''),
+                'name'   => (string)($_POST['payneteasy-card-name'] ?? ''),
+                'cvv'    => (string)($_POST['payneteasy-card-cvv'] ?? ''),
+                'time'   => time(),
+            ]);
+
+            // The session keeps the card data only encrypted with the application key
+            $this->manager->set('payneteasy-card', base64_encode(\Yii::$app->security->encryptByKey($card, $this->cardDataKey())));
+        }
+
+        $this->manager->set('payneteasy-card-address', $_POST['payneteasy-card-address'] ?? '');
+        $this->manager->set('payneteasy-card-zip', $_POST['payneteasy-card-zip'] ?? '');
+        $this->manager->set('payneteasy-remote-address', $_SERVER['REMOTE_ADDR']);
     }
-    
+
+    /**
+     * Key for the card data in the session: it is not stored in the session.
+     */
+    private function cardDataKey()
+    {
+        return hash('sha256', 'payneteasy-card|' . (string)\Yii::$app->request->cookieValidationKey . '|' . (string)MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY, true);
+    }
+
+    /**
+     * Takes the card data from the session and removes it there.
+     * Data older than 15 minutes is not used.
+     */
+    private function takeCardData()
+    {
+        $empty = ['number' => '', 'month' => '', 'year' => '', 'name' => '', 'cvv' => ''];
+
+        $stored = $this->manager->get('payneteasy-card');
+        $this->forgetCardData();
+
+        if (empty($stored)) {
+            return $empty;
+        }
+
+        $json = \Yii::$app->security->decryptByKey(base64_decode((string)$stored), $this->cardDataKey());
+        $card = $json === false ? null : json_decode($json, true);
+
+        if (!is_array($card) || empty($card['time']) || time() - (int)$card['time'] > 900) {
+            return $empty;
+        }
+
+        return array_merge($empty, array_intersect_key($card, $empty));
+    }
+
+    /**
+     * Removes the card data from the session (including the fields of earlier versions).
+     */
+    private function forgetCardData()
+    {
+        if (!$this->manager) {
+            return;
+        }
+
+        $fields = ['payneteasy-card-number', 'payneteasy-card-expiry-month', 'payneteasy-card-expiry-year',
+                   'payneteasy-card-name', 'payneteasy-card-cvv'];
+
+        // The checkout also copies every posted field as one_page_checkout_<field>
+        $keys = ['payneteasy-card'];
+        foreach ($fields as $field) {
+            $keys[] = $field;
+            $keys[] = 'one_page_checkout_' . $field;
+        }
+
+        foreach ($keys as $key) {
+            if ($this->manager->has($key)) {
+                $this->manager->remove($key);
+            }
+        }
+    }
+
     function formatCurrencyRaw($total, $currency_code = null, $currency_value = null) {
 
         if (!isset($currency_code)) {

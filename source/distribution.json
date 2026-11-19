@@ -2,7 +2,7 @@
     "name": "PaynetEasy",
     "description": "This is a Payment Module for Oscommerce, that gives you the ability to process payments through payment service providers running on PaynetEasy.",
     "type": "payment",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "authors": [
         {
             "name": "Payneasy.com",
