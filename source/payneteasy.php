@@ -320,7 +320,7 @@ class payneteasy extends ModulePayment {
         $payneteasy_card_zip          = $this->manager->get('payneteasy-card-zip');
         $payneteasy_remote_address    = $this->manager->get('payneteasy-remote-address');
 
-        // The card data is needed only for this request: remove it from the session.
+        // Remove card fields after use.
         foreach (['payneteasy-card-number', 'payneteasy-card-expiry-month', 'payneteasy-card-expiry-year',
                   'payneteasy-card-name', 'payneteasy-card-cvv'] as $key) {
             $this->manager->remove($key);
