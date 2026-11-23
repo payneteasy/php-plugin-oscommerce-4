@@ -502,8 +502,7 @@ class payneteasy extends ModulePayment {
                 'comments' => '',
                 'customer_notified' => 0,
             ]);
-            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message']) ? '&error=' . $status['error-message'] : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
-            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode($result['data']['message']), 'SSL'));
+            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
             tep_redirect($error_url);
         } elseif (trim($status['status']) == 'declined') {
             $reset_cart = true;
@@ -528,7 +527,7 @@ class payneteasy extends ModulePayment {
                 'comments' => '',
                 'customer_notified' => 0,
             ]);
-            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message']) ? '&error=' . $status['error-message'] : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
+            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
             tep_redirect($error_url);
         }
         if ($reset_cart) {
