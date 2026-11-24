@@ -23,29 +23,6 @@ use common\modules\orderPayment\payneteasy\api\PaynetApi;
  */
 class PayneteasyController extends \backend\controllers\Sceleton {
     
-    function post_transaction($requestData, $_paynet_api_url, $sandbox)
-    {
-
-//        $json = json_encode($requestData);
-//        $ch = curl_init();
-//        curl_setopt($ch, CURLOPT_URL, $_paynet_api_url);
-//        if( $sandbox == "Yes" ) curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-//        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-//        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-//        curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
-//        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-//            'Content-Type: application/json',
-//            'Content-Length: ' . strlen($json)
-//        ));
-//        $response = curl_exec($ch);
-//        curl_close($ch);
-//
-//	    $response = json_decode($response);
-//
-//	    return $response;
-
-    }
-
     function showError($error_message) {
         $result = array(
             'message' => '<span class="warn warning"></span> <span class="text-error">'.htmlspecialchars((string)$error_message, ENT_QUOTES, 'UTF-8').'</span>',
