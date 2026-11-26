@@ -40,8 +40,17 @@ $(document).ready(function () {
             }, 1000);
         }
 
+        // The requests carry the CSRF token of the backend page
+        $.fn.payneteasyRequest = function(fields) {
+            var param = $('meta[name="csrf-param"]').attr('content');
+            if (param) {
+                fields[param] = $('meta[name="csrf-token"]').attr('content');
+            }
+            return fields;
+        }
+
         $.fn.returnPayment = function() {
-            $.post(payneteasy.return_url, { platform_id: payneteasy.platform_id, opyID: payneteasy.opyID, amount: $('input[name=orders_payment_amount]').val() }, function( data ) {
+            $.post(payneteasy.return_url, $.fn.payneteasyRequest({ platform_id: payneteasy.platform_id, opyID: payneteasy.opyID, amount: $('input[name=orders_payment_amount]').val() }), function( data ) {
                 try { data = JSON.parse(data); } catch (e) { data = null; }
                 var text = data && data.message ? $('<div>').html(data.message).text() : 'Unexpected response from the server.';
                 alert(text);
@@ -70,7 +79,7 @@ $(document).ready(function () {
         });
 
         $.fn.balancepayment = function() {
-            $.post(payneteasy.balancepayment_url, { opyID: payneteasy.opyID }, function( data ) {
+            $.post(payneteasy.balancepayment_url, $.fn.payneteasyRequest({ opyID: payneteasy.opyID }), function( data ) {
                 data = JSON.parse(data);
                 if( !data.error && Number(data.amount) <= 0 ) {
                     $('#order_payment_edit input[type="submit"]').parent().append('<label class="btn btn-danger" style="float:left;">'+data.message+'</label>');

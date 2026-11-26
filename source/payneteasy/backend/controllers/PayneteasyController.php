@@ -22,6 +22,16 @@ use common\modules\orderPayment\payneteasy\api\PaynetApi;
  * default controller to handle user requests.
  */
 class PayneteasyController extends \backend\controllers\Sceleton {
+
+    /**
+     * The refund is made from the order payments page: the same access rights are required
+     */
+    public $acl = ['BOX_HEADING_CUSTOMERS', 'BOX_CUSTOMERS_ORDERS'];
+
+    /**
+     * The backend controllers do not validate the CSRF token by default
+     */
+    public $enableCsrfValidation = true;
     
     function showError($error_message) {
         $result = array(
@@ -196,7 +206,11 @@ class PayneteasyController extends \backend\controllers\Sceleton {
             $this->showError($response['error-message'] ?? 'PaynetEasy refused the refund.');
         }
 
-        // The refund is processed asynchronously: wait briefly for the final answer
+        // The refund is processed asynchronously: wait briefly for the final answer.
+        // The status is asked for this refund request (by its serial number): without it
+        // the gateway answers with the last operation of the payment, e.g. an earlier refund.
+        $refundSerial = trim((string)($response['serial-number'] ?? ''));
+        $refundConfirmed = false;
         for ($i = 0; $i < 5; $i++) {
             $statusData = [
                 'login' => MODULE_PAYMENT_PAYNETEASY_LOGIN,
@@ -204,6 +218,9 @@ class PayneteasyController extends \backend\controllers\Sceleton {
                 'orderid' => $transactionId,
             ];
             $statusData['control'] = $this->signString($statusData['login'] . $statusData['client_orderid'] . $statusData['orderid'], MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY);
+            if ($refundSerial !== '') {
+                $statusData['by-request-sn'] = $refundSerial;
+            }
             try {
                 $state = $paynetApi->status($statusData, $payment_payneteasy_payment_method, $sandbox, $action_url, $payment_payneteasy_endpoint_id);
             } catch (\Throwable $e) {
@@ -211,13 +228,21 @@ class PayneteasyController extends \backend\controllers\Sceleton {
             }
             $final = trim((string)($state['status'] ?? ''));
             if (in_array($final, ['declined', 'error', 'filtered'], true)) {
+                // Declined: nothing is recorded
                 $this->showError($state['error-message'] ?? 'PaynetEasy declined the refund.');
             }
-            if ($final !== 'processing') {
+            // Confirmed only by an approved reversal that answers this refund request
+            $refundConfirmed = $final === 'approved'
+                && trim((string)($state['transaction-type'] ?? '')) === 'reversal'
+                && $refundSerial !== ''
+                && trim((string)($state['by-request-sn'] ?? '')) === $refundSerial;
+            if ($refundConfirmed) {
                 break;
             }
             sleep(1);
         }
+        // Not confirmed after the wait: the gateway accepted the request, so the refund
+        // is still recorded (a second attempt would send a second refund), with a warning.
 
         {
             $currencies = \Yii::$container->get('currencies');
@@ -258,8 +283,8 @@ class PayneteasyController extends \backend\controllers\Sceleton {
             $orderPayment->orders_payment_currency = trim($order_currency);
             $orderPayment->orders_payment_currency_rate = (float) $currency_value;
             $orderPayment->orders_payment_snapshot = json_encode(\common\helpers\OrderPayment::getOrderPaymentSnapshot($orderInstance));
-            $orderPayment->orders_payment_transaction_status = 'OK';
-            $orderPayment->orders_payment_transaction_commentary = '';
+            $orderPayment->orders_payment_transaction_status = $refundConfirmed ? 'OK' : 'Not confirmed';
+            $orderPayment->orders_payment_transaction_commentary = $refundConfirmed ? '' : 'PaynetEasy accepted the refund but has not confirmed it yet. Check its final status in the PaynetEasy account.';
             $orderPayment->orders_payment_date_create = date('Y-m-d H:i:s');
             $orderPayment->orders_payment_transaction_full = json_encode($response);
             global $login_id;
@@ -297,8 +322,14 @@ class PayneteasyController extends \backend\controllers\Sceleton {
 
                 }
 
+                if ($refundConfirmed) {
+                    $message = '<h2>Success!</h2><p>The refund of ' . htmlspecialchars($data['amount'] . ' ' . $data['currency'], ENT_QUOTES, 'UTF-8') . ' has been confirmed by PaynetEasy.</p>';
+                } else {
+                    $message = '<h2>Warning!</h2><p>PaynetEasy accepted the refund of ' . htmlspecialchars($data['amount'] . ' ' . $data['currency'], ENT_QUOTES, 'UTF-8') . ' but has not confirmed it yet. The refund is recorded. Check its final status in the PaynetEasy account before refunding again.</p>';
+                }
                 echo json_encode(array(
-                    'message' => '<h2>Success!</h2><p>The refund of ' . htmlspecialchars($data['amount'] . ' ' . $data['currency'], ENT_QUOTES, 'UTF-8') . ' has been sent to PaynetEasy.</p>',
+                    'message' => $message,
+                    'warning' => !$refundConfirmed,
                     'error' => false
                 ));
 

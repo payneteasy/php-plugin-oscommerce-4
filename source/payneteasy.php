@@ -25,6 +25,8 @@ class payneteasy extends ModulePayment {
     /**
      * default values for translation
      */
+    const TEXT_PAYMENT_TO_CHECK = 'The payment has to be checked by the shop. Please contact us.';
+
     protected $defaultTranslationArray = [
         'MODULE_PAYMENT_PAYNETEASY_TEXT_TITLE' => 'PaynetEasy',
         'MODULE_PAYMENT_PAYNETEASY_TEXT_DESCRIPTION' => 'The PaynetEasy Payment Gateway enables merchants to accept credit card online during checkout.',
@@ -478,6 +480,10 @@ class payneteasy extends ModulePayment {
                     print $status['html'];
                 }
             }
+        } elseif ((trim($status['status']) == 'approved' || $status['status'] == 'approved') && !$this->isPaidInFull($order, $status)) {
+            // The paid amount is not the order total: nothing is recorded as paid
+            $this->addOrderNote($order->order_id, $this->mismatchNote($status));
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . '&error=' . urlencode(self::TEXT_PAYMENT_TO_CHECK), 'SSL', false));
         } elseif (trim($status['status']) == 'approved' || $status['status'] == 'approved') {
             $reset_cart = true;
             $orderPayment = new \common\models\OrdersPayment();
@@ -524,7 +530,7 @@ class payneteasy extends ModulePayment {
                 'comments' => '',
                 'customer_notified' => 0,
             ]);
-            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
+            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : ''), 'SSL', false);
             tep_redirect($error_url);
         } elseif (trim($status['status']) == 'declined') {
             $reset_cart = true;
@@ -549,7 +555,7 @@ class payneteasy extends ModulePayment {
                 'comments' => '',
                 'customer_notified' => 0,
             ]);
-            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : '') . '&' . tep_session_name() . '=' . tep_session_id(), 'SSL', false);
+            $error_url = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . (tep_not_null($status['error-message'] ?? '') ? '&error=' . urlencode($status['error-message']) : ''), 'SSL', false);
             tep_redirect($error_url);
         }
         if ($reset_cart) {
@@ -603,7 +609,14 @@ class payneteasy extends ModulePayment {
             }
             exit('ok');
         }
-        if (trim($status['status']) == 'approved' || $status['status'] == 'approved') {
+        if ((trim($status['status']) == 'approved' || $status['status'] == 'approved') && !$this->isPaidInFull($order, $status)) {
+            // The paid amount is not the order total: nothing is recorded as paid
+            $this->addOrderNote($order->order_id, $this->mismatchNote($status));
+            echo '<div class="error" style="text-align: center;width: 100%;">';
+            echo '<p>' . htmlspecialchars(self::TEXT_PAYMENT_TO_CHECK, ENT_QUOTES, 'UTF-8') . '</p>';
+            echo '<p><a class="btn-1 btn-buy" href="'.HTTP_SERVER.'">Return on homepage</a></p>';
+            echo '</div>';
+        } elseif (trim($status['status']) == 'approved' || $status['status'] == 'approved') {
             $orderPayment = new \common\models\OrdersPayment();
             $orderPayment->orders_payment_module = $this->code;
             $orderPayment->orders_payment_module_name = $this->title;
@@ -687,6 +700,61 @@ class payneteasy extends ModulePayment {
             echo '</div>';
             tep_db_query("DELETE FROM " . TABLE_CUSTOMERS_BASKET . " WHERE customers_id = '" . (int) $order->customer['id'] . "'");
             tep_db_query("DELETE FROM " . TABLE_CUSTOMERS_BASKET_ATTRIBUTES . " WHERE customers_id = '" . (int) $order->customer['id'] . "'");
+        }
+    }
+
+    /**
+     * True, if the gateway amount and currency match the order total
+     */
+    private function isPaidInFull($order, $status)
+    {
+        $amount   = trim((string) ($status['amount'] ?? ''));
+        $currency = trim((string) ($status['currency'] ?? ''));
+
+        if (!preg_match('/^\d+(\.\d{1,2})?$/', $amount)) {
+            return false;
+        }
+
+        // _start_transaction() sends this amount and currency
+        $expected = $this->formatCurrencyRaw($order->info['total_inc_tax'], $order->info['currency']);
+
+        return strcasecmp($currency, trim((string) $order->info['currency'])) === 0
+            && (int) round((float) $amount * 100) === (int) round((float) $expected * 100);
+    }
+
+    /**
+     * Order comment about an approved payment that does not match the order total
+     */
+    private function mismatchNote($status)
+    {
+        $payment  = preg_replace('/[^0-9]/', '', (string) ($status['paynet-order-id'] ?? ''));
+        $amount   = preg_replace('/[^0-9.]/', '', (string) ($status['amount'] ?? ''));
+        $currency = preg_replace('/[^A-Za-z]/', '', (string) ($status['currency'] ?? ''));
+
+        return 'PaynetEasy: payment ' . trim($payment . ' (' . trim($amount . ' ' . $currency) . ')')
+             . ' was approved, but it does not match the order total. The order was not marked as paid, check the payment.';
+    }
+
+    /**
+     * Adds a comment to the order history once, the order status is not changed
+     */
+    private function addOrderNote($order_id, $comment)
+    {
+        $exists = tep_db_fetch_array(tep_db_query(
+            "SELECT orders_id FROM " . TABLE_ORDERS_STATUS_HISTORY . " WHERE orders_id = '" . (int) $order_id . "' AND comments = '" . tep_db_input($comment) . "' LIMIT 1"
+        ));
+        if ($exists) {
+            return;
+        }
+
+        $row = tep_db_fetch_array(tep_db_query(
+            "SELECT orders_status FROM " . TABLE_ORDERS . " WHERE orders_id = '" . (int) $order_id . "'"
+        ));
+        if ($row) {
+            \common\helpers\Order::setStatus((int) $order_id, (int) $row['orders_status'], [
+                'comments' => $comment,
+                'customer_notified' => 0,
+            ], true);
         }
     }
 
@@ -916,16 +984,21 @@ class payneteasy extends ModulePayment {
         return new ModuleSortOrder('MODULE_PAYMENT_PAYNETEASY_SORT_ORDER');
     }
 
+    /**
+     * Status of the order payment: all attempts of the order are checked, newest first
+     * (the customer may pay in an older tab; gateway ids grow with every payment).
+     * An approved attempt wins, then a processing one, otherwise the latest attempt.
+     */
     public function getPaymentStatus($order)
     {
-        $paynet_order_id = tep_db_fetch_array(tep_db_query("SELECT paynet_order_id FROM payneteasy_payments WHERE merchant_order_id = '" . $order->order_id . "'"));
-
-        $data = [
-            'login' => MODULE_PAYMENT_PAYNETEASY_LOGIN,
-            'client_orderid' => (string)$order->order_id,
-            'orderid' => $paynet_order_id['paynet_order_id'],
-        ];
-        $data['control'] = $this->signStatusRequest($data, MODULE_PAYMENT_PAYNETEASY_LOGIN, MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY);
+        $attempts = [];
+        $attempts_query = tep_db_query("SELECT paynet_order_id FROM payneteasy_payments WHERE merchant_order_id = '" . (int) $order->order_id . "' ORDER BY paynet_order_id DESC LIMIT 5");
+        while ($row = tep_db_fetch_array($attempts_query)) {
+            $attempts[] = (string) $row['paynet_order_id'];
+        }
+        if (!$attempts) {
+            $attempts[] = '';
+        }
 
         $sandbox = MODULE_PAYMENT_PAYNETEASY_SANDBOX;
         $action_url = MODULE_PAYMENT_PAYNETEASY_LIVE_URL;
@@ -946,15 +1019,42 @@ class payneteasy extends ModulePayment {
             $sandbox
         );
 
-        $response = $paynetApi->status($data, MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD, $sandbox, $action_url, MODULE_PAYMENT_PAYNETEASY_ENDPOINT_ID);
+        $latest = null;
+        $processing = null;
 
-        if (
-            !isset($response['status'])
-        ) {
-//            throw new Exception('No information about payment status.');
+        foreach ($attempts as $paynet_order_id) {
+            $data = [
+                'login' => MODULE_PAYMENT_PAYNETEASY_LOGIN,
+                'client_orderid' => (string)$order->order_id,
+                'orderid' => $paynet_order_id,
+            ];
+            $data['control'] = $this->signStatusRequest($data, MODULE_PAYMENT_PAYNETEASY_LOGIN, MODULE_PAYMENT_PAYNETEASY_CONTROL_KEY);
+
+            $response = $paynetApi->status($data, MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD, $sandbox, $action_url, MODULE_PAYMENT_PAYNETEASY_ENDPOINT_ID);
+
+            // Only one attempt: its answer is used as it is
+            if (count($attempts) == 1) {
+                return $response;
+            }
+
+            // The gateway answers for any transaction id: use only answers for this order
+            if (isset($response['merchant-order-id']) && trim((string) $response['merchant-order-id']) !== (string) $order->order_id) {
+                continue;
+            }
+
+            $state = trim((string) ($response['status'] ?? ''));
+            if ($state === 'approved') {
+                return $response;
+            }
+            if ($state === 'processing' && $processing === null) {
+                $processing = $response;
+            }
+            if ($latest === null) {
+                $latest = $response;
+            }
         }
 
-        return $response;
+        return $processing ?? $latest ?? ['status' => ''];
     }
 
     /**
