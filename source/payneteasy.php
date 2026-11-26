@@ -446,7 +446,29 @@ class payneteasy extends ModulePayment {
     {
         $order = $this->manager->getOrderInstance();
         $response = $this->_start_transaction($order);
+
+        // The gateway did not accept the sale: the order is not left as placed,
+        // the customer goes back to the payment step
+        if (empty($response['paynet-order-id'])) {
+            \common\helpers\Order::setStatus($order->order_id, 5, [
+                'comments' => 'PaynetEasy: the payment request was not accepted',
+                'customer_notified' => 0,
+            ]);
+            $message = trim((string) ($response['error-message'] ?? ''));
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'payment_error=' . $this->code . ($message !== '' ? '&error=' . urlencode($message) : ''), 'SSL'));
+        }
+
         $status = $this->getPaymentStatus($order);
+
+        // A card sale without a 3-D Secure page is usually finished within seconds:
+        // wait for its result, the customer does not come back through the gateway
+        if (MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD == 'Direct') {
+            for ($attempt = 0; $attempt < 10 && trim($status['status'] ?? '') === 'processing' && empty($status['html']); $attempt++) {
+                sleep(1);
+                $status = $this->getPaymentStatus($order);
+            }
+        }
+
         $reset_cart = false;
         if (trim($status['status']) == 'processing') {
             if (MODULE_PAYMENT_PAYNETEASY_PAYMENT_METHOD == 'Form') {
@@ -550,6 +572,18 @@ class payneteasy extends ModulePayment {
         $order = $this->manager->getOrderInstanceWithId('\common\classes\Order', (int) $orderId);
         $status = $this->getPaymentStatus($order);
         $status['status'] = trim($status['status'] ?? '');
+
+        // The customer return and the server callback come almost together:
+        // only one request at a time checks and records the payment of an order.
+        $lock = 'payneteasy_order_' . (int) $orderId;
+        tep_db_query("SELECT GET_LOCK('" . $lock . "', 15)");
+        register_shutdown_function(function () use ($lock) {
+            try {
+                tep_db_query("SELECT RELEASE_LOCK('" . $lock . "')");
+            } catch (\Throwable $e) {
+                // the lock is released with the connection
+            }
+        });
 
         // A repeated return or callback, or a paid order, is not processed again.
         $paid = \common\models\OrdersPayment::find()->where([
