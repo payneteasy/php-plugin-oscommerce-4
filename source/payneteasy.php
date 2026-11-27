@@ -90,6 +90,9 @@ class payneteasy extends ModulePayment {
                 ], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) . ';';
             \Yii::$app->getView()->registerJs($script);
         }
+
+        // Card data of an unfinished checkout is not kept longer than 15 minutes
+        $this->removeExpiredCardData();
         
         if ($this->checkView() == "admin") {
             $adminrefund = tep_catalog_href_link('lib/common/modules/orderPayment/payneteasy/js/adminrefund.js');
@@ -805,21 +808,45 @@ class payneteasy extends ModulePayment {
     {
         $empty = ['number' => '', 'month' => '', 'year' => '', 'name' => '', 'cvv' => ''];
 
-        $stored = $this->manager->get('payneteasy-card');
+        $card = $this->readCardData();
         $this->forgetCardData();
 
-        if (empty($stored)) {
+        if ($card === null) {
             return $empty;
+        }
+
+        return array_merge($empty, array_intersect_key($card, $empty));
+    }
+
+    /**
+     * Card data from the session, or null when there is none or it is older than 15 minutes.
+     */
+    private function readCardData()
+    {
+        $stored = $this->manager ? $this->manager->get('payneteasy-card') : null;
+
+        if (empty($stored)) {
+            return null;
         }
 
         $json = \Yii::$app->security->decryptByKey(base64_decode((string)$stored), $this->cardDataKey());
         $card = $json === false ? null : json_decode($json, true);
 
         if (!is_array($card) || empty($card['time']) || time() - (int)$card['time'] > 900) {
-            return $empty;
+            return null;
         }
 
-        return array_merge($empty, array_intersect_key($card, $empty));
+        return $card;
+    }
+
+    /**
+     * Removes the card data from the session when it is older than 15 minutes.
+     */
+    private function removeExpiredCardData()
+    {
+        if ($this->manager && $this->manager->has('payneteasy-card') && $this->readCardData() === null) {
+            $this->forgetCardData();
+        }
     }
 
     /**
